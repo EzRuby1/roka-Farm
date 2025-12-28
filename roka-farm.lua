@@ -1,3 +1,25 @@
+-- ==== INTERNAL AUTO-RESOLVING CONFIG ACCESSORS ====
+local function IsBuyLucky()
+    if getgenv and getgenv().Config and getgenv().Config.BuyLucky ~= nil then
+        return getgenv().Config.BuyLucky
+    end
+    return true
+end
+local function IsAutoSell()
+    if getgenv and getgenv().Config and getgenv().Config.AutoSell ~= nil then
+        return getgenv().Config.AutoSell
+    end
+    return true
+end
+local function GetWebhookURL()
+    return (getgenv and getgenv().Config and getgenv().Config.Webhook ~= nil)
+        and getgenv().Config.Webhook or ""
+end
+local function GetMaxMoneyAlert()
+    return (getgenv and getgenv().Config and getgenv().Config.MaxMoneyAlert ~= nil)
+        and getgenv().Config.MaxMoneyAlert or 1000000
+end
+
 -- ==== SAFE MODE & OPTIMIZATION ====
 local SafeMode = true -- Set to true for multi-account stability
 if getgenv and getgenv().Config and getgenv().Config.SafeMode ~= nil then
@@ -118,6 +140,23 @@ print("Loop Loaded!")
 warn("Loop Loaded!")
 wait(2)
 
+local SellItems = {
+    ["Gold Coin"] = true,
+    ["Rokakaka"] = true,
+    ["Pure Rokakaka"] = true,
+    ["Mysterious Arrow"] = true,
+    ["Diamond"] = true,
+    ["Ancient Scroll"] = true,
+    ["Caesar's Headband"] = true,
+    ["Stone Mask"] = true,
+    ["Rib Cage of The Saint's Corpse"] = true,
+    ["Quinton's Glove"] = true,
+    ["Zeppeli's Hat"] = true,
+    ["Lucky Arrow"] = false,
+    ["Clackers"] = true,
+    ["Steel Ball"] = true,
+    ["Dio's Diary"] = true
+}
 
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
@@ -270,10 +309,21 @@ local function ToggleNoclip(Value)
 end
 
 local MaxItemAmounts = {
+    ["Gold Coin"] = 45,
     ["Rokakaka"] = 25,
+    ["Pure Rokakaka"] = 10,
     ["Mysterious Arrow"] = 25,
+    ["Diamond"] = 30,
+    ["Ancient Scroll"] = 10,
+    ["Caesar's Headband"] = 10,
+    ["Stone Mask"] = 10,
     ["Rib Cage of The Saint's Corpse"] = 20,
+    ["Quinton's Glove"] = 10,
+    ["Zeppeli's Hat"] = 10,
     ["Lucky Arrow"] = 10,
+    ["Clackers"] = 10,
+    ["Steel Ball"] = 10,
+    ["Dio's Diary"] = 10
 }
 
 if Has2x then
@@ -442,6 +492,29 @@ local cyclesCompleted = 0
 local maxCycles = 1
 local maxCycleTime = 60
 
+-- WEBHOOK NOTIFY FUNCTION
+local notifiedMoney = false
+local function SendWebhook(message)
+    local url = GetWebhookURL()
+    if url and url ~= "" then
+        pcall(function()
+            local HttpService = game:GetService("HttpService")
+            -- Include username in the content for better visibility
+            local finalMessage = "**[" .. Player.Name .. "]** " .. message
+            local data = {
+                ["content"] = finalMessage,
+                ["username"] = "YBA Auto Farm"
+            }
+            request({
+                Url = url,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = HttpService:JSONEncode(data)
+            })
+        end)
+    end
+end
+
 while true do
     task.wait(0.1) -- Prevent CPU lockup
     print("=== Cycle #" .. (cyclesCompleted + 1) .. " ===")
@@ -478,7 +551,75 @@ while true do
             end
         end
     end
-    
+
+    task.wait(3)
+    local cycleStartTime = tick()
+    print("Farm finished, starting sell and buy checks...")
+
+    -- Money notification webhook (reads config live)
+    local Money = Player.PlayerStats.Money
+    if Money.Value >= GetMaxMoneyAlert() and not notifiedMoney then
+        notifiedMoney = true
+        SendWebhook("💰 reached MAX MONEY! ($" .. GetMaxMoneyAlert() .. ")")
+        print("🎉 Alert: Target money reached!")
+    end
+
+    -- Sell items (reads user config live)
+    if IsAutoSell() then
+        for Item, Sell in pairs(SellItems) do
+            if Sell and Player.Backpack and Player.Backpack:FindFirstChild(Item) then
+                pcall(function()
+                    GetCharacter("Humanoid"):EquipTool(Player.Backpack:FindFirstChild(Item))
+                    GetCharacter("RemoteEvent"):FireServer("EndDialogue", {
+                        ["NPC"] = "Merchant",
+                        ["Dialogue"] = "Dialogue5",
+                        ["Option"] = "Option2"
+                    })
+                end)
+                task.wait(ActionDelay)
+            end
+        end
+    end
+
+    -- Buy Lucky Arrows (reads user config live) - OPTIMIZED
+    if IsBuyLucky() and not HasLuckyArrows() then
+        print("Buying Lucky Arrows... (Money: $" .. Money.Value .. ")")
+        local purchaseAttempts = 0
+        while Money.Value >= 75000 and purchaseAttempts < 15 do
+            pcall(function()
+                Player.Character.RemoteEvent:FireServer("PurchaseShopItem", {["ItemName"] = "1x Lucky Arrow"})
+            end)
+            task.wait(0.7) -- OPTIMIZED: 1.0 -> 0.7
+            purchaseAttempts = purchaseAttempts + 1
+
+            local currentCount = 0
+            for _, Tool in pairs(Player.Backpack:GetChildren()) do
+                if Tool.Name == "Lucky Arrow" then
+                    currentCount = currentCount + 1
+                end
+            end
+            if Player.Character then
+                for _, Tool in pairs(Player.Character:GetChildren()) do
+                    if Tool:IsA("Tool") and Tool.Name == "Lucky Arrow" then
+                        currentCount = currentCount + 1
+                    end
+                end
+            end
+
+            print("Lucky Arrows: " .. currentCount .. "/10")
+            if currentCount >= 10 then
+                SendWebhook("🏹 reached MAX LUCKY ARROWS! (10/10)")
+                print("Max Lucky Arrows reached!")
+                break
+            end
+
+            if purchaseAttempts > 3 and currentCount == 9 then
+                print("⚠️ Could not buy the tenth Lucky Arrow")
+                break
+            end
+        end
+    end
+
     cyclesCompleted = cyclesCompleted + 1
     print("Cycle completed (" .. cyclesCompleted .. "/" .. maxCycles .. ")")
 
